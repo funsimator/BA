@@ -1,7 +1,11 @@
 using JetBrains.Annotations;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading.Tasks;
+using UnityEditor.Experimental.GraphView;
+using UnityEditor.SearchService;
 using UnityEngine;
 
 public class FlowField
@@ -29,6 +33,25 @@ public class FlowField
 
     }
 
+    private void PrepFieldForIteration(bool resetIntegration = true)
+    {
+        for (int x = 0; x < cellsX; x++)
+        {
+            for (int y = 0; y < cellsY; y++)
+            {
+                for (int z = 0; z < cellsZ; z++)
+                {
+                    if (flowFieldCells[x, y, z] != null)
+                    {
+                        if (resetIntegration) flowFieldCells[x, y, z].integrationValue = float.PositiveInfinity;
+                        flowFieldCells[x, y, z].queed = false;
+
+                    }
+                }
+            }
+        }
+    }
+
 
     public void GenerateGraph()
     {
@@ -49,17 +72,29 @@ public class FlowField
             {
                 for (int z = 0; z < cellsZ; z++)
                 {
-                    flowFieldCells[x, y, z] = new FlowFieldCell(new Vector3(min.x + FlowFieldCell.cellSize * x, min.y + FlowFieldCell.cellSize * y, min.z + FlowFieldCell.cellSize * z));
+                    flowFieldCells[x, y, z] = new FlowFieldCell(new Vector3(min.x + FlowFieldCell.cellSize * x, min.y + FlowFieldCell.cellSize * y, min.z + FlowFieldCell.cellSize * z), x, y, z);
                 }
             }
         }
         CleanGraph();
 
-        DrawGraph();
+        //Temp
+        int[] ind = new int[3];
+        GetNearestCell(new Vector3(-6.73799992f, 0, -0.0469999984f), out ind[0], out ind[1], out ind[2]);
+        flowFieldCells[ind[0], ind[1], ind[2]].hasAgent = true;
+        GetNearestCell(new Vector3(0.790000021f, 0, -5.03999996f), out ind[0], out ind[1], out ind[2]);
+        flowFieldCells[ind[0], ind[1], ind[2]].hasAgent = true;
+        GetNearestCell(new Vector3(-1.69000006f, 3.91000009f, 20.1399994f), out ind[0], out ind[1], out ind[2]);
+        flowFieldCells[ind[0], ind[1], ind[2]].hasAgent = true;
+        //Temp
+
+        //IntegrateCompleteField(new Vector3(-6.73799992f, 0, -0.0469999984f));
+        //DrawGraph();
     }
 
-    private void DrawGraph()
+    public void DrawGraph()
     {
+        Debug.Log("Tst");
         for (int x = 0; x < cellsX; x++)
         {
             for (int y = 0; y < cellsY; y++)
@@ -185,7 +220,6 @@ public class FlowField
                         {
                             flowFieldCells[x, y, z].containsTriangle = true;
                         }
-                        else Debug.Log("Not Intersecting");
 
 
                     }
@@ -217,21 +251,174 @@ public class FlowField
         Debug.Log("activeCellCounter: " + activeCellCounter);
     }
 
-    private void SculptGraph()
+    public void IntegrateCompleteField(Vector3 goal)
+    {
+        PrepFieldForIteration();
+        int[] goalIndices = new int[3];
+        GetNearestCell(goal, out goalIndices[0], out goalIndices[1], out goalIndices[2]);
+        flowFieldCells[goalIndices[0], goalIndices[1], goalIndices[2]].integrationValue = 0f;
+        flowFieldCells[goalIndices[0], goalIndices[1], goalIndices[2]].queed = true;
+
+        float currentIntegration = 0f;
+
+        List<int[]> activeCells = new List<int[]>();
+        AddNeighbours(goalIndices[0], goalIndices[1], goalIndices[2], activeCells);
+        int counter = 0;
+        int loops = GameObject.Find("Main Camera").GetComponent<SceneHandler>().loops;
+
+        while (activeCells.Count > 0 && counter < loops)
+        {
+            int cellCounter = 0;
+            foreach (var cell in activeCells)
+            {
+                cellCounter++;
+                flowFieldCells[cell[0], cell[1], cell[2]].integrationValue = FindIntegrationValue(cell);
+                //Debug.Log(new Vector3(cell[0], cell[1], cell[2]));
+                //Debug.Log("Integration Value: " + flowFieldCells[cell[0], cell[1], cell[2]].integrationValue);
+            }
+            List<int[]> temp = activeCells;
+            activeCells = new List<int[]>();
+            foreach (var cell in temp)
+            {
+                AddNeighbours(cell[0], cell[1], cell[2], activeCells);
+            }
+            FlowFieldCell.maxIntegration = currentIntegration;
+            counter++;
+        }
+        Debug.Log("Amount of Loop while integrating: " + counter);
+    }
+
+    private float FindIntegrationValue(int[] ind)
+    {
+        int x = ind[0];
+        int y = ind[1];
+        int z = ind[2];
+        List<int[]> cells = new List<int[]>();
+        AddNeighbours(x, y, z, cells, false, false);
+        float lowestIntegration = float.PositiveInfinity;
+
+        foreach (var cell in cells)
+        {
+            float flow = flowFieldCells[cell[0], cell[1], cell[2]].integrationValue + (flowFieldCells[cell[0], cell[1], cell[2]].center - flowFieldCells[x, y, z].center).magnitude;
+            if (flow < lowestIntegration) lowestIntegration = flow;
+        }
+        return lowestIntegration;
+    }
+
+    private void AddNeighbours(int x, int y, int z, List<int[]> list, bool setQueed = true, bool forIntegration = true)
     {
 
-        int b = 1;
-        int c = 2;
-        for (int a = 0; a < navMesh.navMesh.indices.Length; a += 3)
+        for (int a = x - 1; a <= x + 1; a++)
         {
-            Vector3[] trianglePoints = { navMesh.navMesh.vertices[navMesh.navMesh.indices[a]], navMesh.navMesh.vertices[navMesh.navMesh.indices[b]], navMesh.navMesh.vertices[navMesh.navMesh.indices[c]] };
+            for (int b = z - 1; b <= z + 1; b++)
+            {
+                if (0 <= a && a < cellsX && 0 <= y + 1 && y + 1 < cellsY && 0 <= b && b < cellsZ && flowFieldCells[a, y + 1, b] != null && (flowFieldCells[a, y + 1, b].integrationValue == float.PositiveInfinity || !forIntegration) && (!flowFieldCells[a, y + 1, b].queed || !forIntegration))
+                {
+                    list.Add(new int[] { a, y + 1, b });
+                    flowFieldCells[a, y + 1, b].queed = setQueed;
+                }
 
+                if (0 <= a && a < cellsX && 0 <= y && y < cellsY && 0 <= b && b < cellsZ && flowFieldCells[a, y, b] != null && !(a == x && b == z) && (flowFieldCells[a, y, b].integrationValue == float.PositiveInfinity || !forIntegration) && (!flowFieldCells[a, y, b].queed || !forIntegration))
+                {
+                    list.Add(new int[] { a, y, b });
+                    flowFieldCells[a, y, b].queed = setQueed;
+                }
 
-            b += 3;
-            c += 3;
+                if (0 <= a && a < cellsX && 0 <= y - 1 && y - 1 < cellsY && 0 <= b && b < cellsZ && flowFieldCells[a, y - 1, b] != null && (flowFieldCells[a, y - 1, b].integrationValue == float.PositiveInfinity || !forIntegration) && (!flowFieldCells[a, y - 1, b].queed || !forIntegration))
+                {
+                    list.Add(new int[] { a, y - 1, b });
+                    flowFieldCells[a, y - 1, b].queed = setQueed;
+                }
+
+            }
+        }
+    }
+
+    public FlowFieldCell GetNearestCell(Vector3 pos)
+    {
+        int x = 0, y = 0, z = 0;
+        GetNearestCell(pos, out x, out y, out z);
+        return flowFieldCells[x, y, z];
+    }
+    private void GetNearestCell(Vector3 pos, out int x, out int y, out int z)
+    {
+        x = 0; y = 0; z = 0;
+        float cellSize = FlowFieldCell.cellSize;
+
+        Vector3 posNormalized = pos - fieldOrigin;
+        Vector3 posScaled = posNormalized / cellSize;
+
+        if (pos.x < fieldOrigin.x)
+            x = 0;
+        else if (pos.x > fieldOrigin.x + cellsX * cellSize)
+            x = cellsX - 1;
+        else
+            x = Mathf.FloorToInt(posScaled.x);
+
+        if (pos.y < fieldOrigin.y)
+            y = 0;
+        else if (pos.y > fieldOrigin.y + cellsY * cellSize)
+            y = cellsX - 1;
+        else
+            y = Mathf.FloorToInt(posScaled.y);
+
+        if (pos.z < fieldOrigin.z)
+            z = 0;
+        else if (pos.z > fieldOrigin.z + cellsZ * cellSize)
+            z = cellsX - 1;
+        else
+            z = Mathf.FloorToInt(posScaled.z);
+
+        if (flowFieldCells[x, y, z] != null) return;
+        while (y >= 0 && flowFieldCells[x, y, z] == null) y--;
+    }
+
+    public void GenerateVectorField()
+    {
+        PrepFieldForIteration(false);
+        List<int[]> neighbours = new List<int[]>();
+        for (int x = 0; x < cellsX; x++)
+        {
+            for (int y = 0; y < cellsY; y++)
+            {
+                for (int z = 0; z < cellsZ; z++)
+                {
+                    if (flowFieldCells[x, y, z] == null || flowFieldCells[x, y, z].integrationValue == float.PositiveInfinity) continue;
+                    neighbours.Clear();
+                    flowFieldCells[x, y, z].queed = false;
+
+                    AddNeighbours(x, y, z, neighbours, false,false);
+                    if (neighbours.Count == 0) continue;
+                    int highest = FindHighestIntegration(neighbours);
+                    int[] highestNeighbour = neighbours[highest];
+                    flowFieldCells[x, y, z].flowValue = flowFieldCells[highestNeighbour[0], highestNeighbour[1], highestNeighbour[2]].center - flowFieldCells[x, y, z].center;
+
+                    //Debug.Log("Flow Value: " + flowFieldCells[x, y, z].flowValue);
+                    //Debug.Break();
+                }
+            }
         }
 
 
     }
+    private int FindHighestIntegration(List<int[]> list)
+    {
+        int index = 0;
+        float lowest = float.MaxValue;
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (flowFieldCells[list[i][0], list[i][1], list[i][2]].integrationValue < lowest)
+            {
+                lowest = flowFieldCells[list[i][0], list[i][1], list[i][2]].integrationValue;
+                index = i;
+            }
+        }
+        return index;
+    }
 
+    public Vector3 GetVector(int x, int y, int z)
+    {
+        if (flowFieldCells[x, y, z] == null) return Vector3.zero;
+        return flowFieldCells[x, y, z].flowValue;
+    }
 }

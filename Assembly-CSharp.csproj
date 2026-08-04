@@ -59,6 +59,7 @@
     <Compile Include="Assets\Scenes\SceneHandler.cs" />
     <Compile Include="Assets\Scenes\PathfindingTester.cs" />
     <Compile Include="Assets\Scenes\TriangleBoxTest.cs" />
+    <Compile Include="Assets\Scenes\MovementTest.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

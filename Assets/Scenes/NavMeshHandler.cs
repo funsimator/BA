@@ -71,7 +71,7 @@ public class NavMeshHandler
             sideAHeightVector.Normalize();
 
 
-            FlowFieldCell firstCell = new FlowFieldCell(trianglePoints[0] + sideA.normalized * cellSize / 2 + sideAHeightVector * cellSize / 2);
+            FlowFieldCell firstCell = new FlowFieldCell(trianglePoints[0] + sideA.normalized * cellSize / 2 + sideAHeightVector * cellSize / 2, 0, 0, 0);
 
             startingCells.Add(firstCell);
 
