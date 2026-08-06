@@ -2,6 +2,8 @@ using JetBrains.Annotations;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using UnityEditor.Experimental.GraphView;
@@ -24,10 +26,15 @@ public class FlowField
 
     private Vector3 fieldOrigin = Vector3.zero;
 
+    private Vector3 fieldMax = Vector3.zero;
+
     private GameObject visuCube = Resources.Load<GameObject>("FlowFieldCube");
 
     private GameObject colliderEmpty = null;
 
+    private SeriField seri = new SeriField();
+
+    private bool loadFromFile = false;
     private FlowField()
     {
 
@@ -52,59 +59,77 @@ public class FlowField
         }
     }
 
-
-    public void GenerateGraph()
+    private void LoadFromFile()
     {
+        FileStream fs = new FileStream("Assets\\JSON.txt", FileMode.Open);
+        BinaryFormatter formatter = new BinaryFormatter();
+        seri = (SeriField)formatter.Deserialize(fs);
+        flowFieldCells = new FlowFieldCell[seri.x[0], seri.y[0], seri.z[0]];
+        fieldOrigin = new Vector3(seri.originX, seri.originY, seri.originZ);
+        GameObject.FindGameObjectWithTag("Visu").transform.position = fieldOrigin;
+        fieldMax = fieldOrigin + new Vector3(seri.x[0] * FlowFieldCell.cellSize, seri.y[0] * FlowFieldCell.cellSize, seri.z[0] * FlowFieldCell.cellSize);
+        cellsX = seri.x[0];
+        cellsY = seri.y[0];
+        cellsZ = seri.z[0];
+        for (int i = 1; i < seri.x.Count; i++)
+        {
+            flowFieldCells[seri.x[i], seri.y[i], seri.z[i]] = new FlowFieldCell(fieldOrigin + new Vector3(seri.x[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.y[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.z[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2), seri.x[i], seri.y[i], seri.z[i]);
+        }
+
+    }
+
+    public void GenerateGraph(bool loadFromFile, TextAsset file)
+    {
+        this.loadFromFile = loadFromFile;
+        if (loadFromFile)
+        {
+            LoadFromFile();
+            return;
+        }
         navMesh.GetMaxCoordinates(out Vector3 min, out Vector3 max);
         Debug.Log("Min" + min);
         Debug.Log("Max: " + max);
         fieldOrigin = min;
+        fieldMax = max;
 
         cellsX = Mathf.Max(Mathf.CeilToInt((max.x - min.x) / FlowFieldCell.cellSize + 1), 1);
         cellsY = Mathf.Max(Mathf.CeilToInt((max.y - min.y) / FlowFieldCell.cellSize + 1), 1);
         cellsZ = Mathf.Max(Mathf.CeilToInt((max.z - min.z) / FlowFieldCell.cellSize + 1), 1);
         flowFieldCells = new FlowFieldCell[cellsX, cellsY, cellsZ];
 
-
-        for (int x = 0; x < cellsX; x++)
+        if (!loadFromFile)
         {
-            for (int y = 0; y < cellsY; y++)
-            {
-                for (int z = 0; z < cellsZ; z++)
-                {
-                    flowFieldCells[x, y, z] = new FlowFieldCell(new Vector3(min.x + FlowFieldCell.cellSize * x, min.y + FlowFieldCell.cellSize * y, min.z + FlowFieldCell.cellSize * z), x, y, z);
-                }
-            }
+            seri.x.Add(cellsX);
+            seri.y.Add(cellsY);
+            seri.z.Add(cellsZ);
+            seri.originX = fieldOrigin.x;
+            seri.originY = fieldOrigin.y;
+            seri.originZ = fieldOrigin.z;
         }
+
+
+
         CleanGraph();
 
-        //Temp
-        int[] ind = new int[3];
-        GetNearestCell(new Vector3(-6.73799992f, 0, -0.0469999984f), out ind[0], out ind[1], out ind[2]);
-        flowFieldCells[ind[0], ind[1], ind[2]].hasAgent = true;
-        GetNearestCell(new Vector3(0.790000021f, 0, -5.03999996f), out ind[0], out ind[1], out ind[2]);
-        flowFieldCells[ind[0], ind[1], ind[2]].hasAgent = true;
-        GetNearestCell(new Vector3(-1.69000006f, 3.91000009f, 20.1399994f), out ind[0], out ind[1], out ind[2]);
-        flowFieldCells[ind[0], ind[1], ind[2]].hasAgent = true;
-        //Temp
-
-        //IntegrateCompleteField(new Vector3(-6.73799992f, 0, -0.0469999984f));
-        //DrawGraph();
+        if (!loadFromFile)
+        {
+            FileStream fs = new FileStream("Assets\\JSON.txt", FileMode.Create);
+            BinaryFormatter formatter = new BinaryFormatter();
+            formatter.Serialize(fs, seri);
+            fs.Close();
+        }
     }
 
-    public void DrawGraph()
+    public void DrawGraph(bool drawVectorOnly)
     {
-        Debug.Log("Tst");
         for (int x = 0; x < cellsX; x++)
         {
             for (int y = 0; y < cellsY; y++)
             {
                 for (int z = 0; z < cellsZ; z++)
                 {
-                    //GameObject.Instantiate(visuCube, flowFieldCells[x, y, z].center, Quaternion.identity).transform.localScale = new Vector3(FlowFieldCell.cellSize, FlowFieldCell.cellSize, FlowFieldCell.cellSize);
                     if (flowFieldCells[x, y, z] != null)
-                        flowFieldCells[x, y, z].DrawCell();
-
+                        flowFieldCells[x, y, z].DrawCell(drawVectorOnly);
                 }
 
             }
@@ -114,18 +139,22 @@ public class FlowField
 
     private void CleanGraph()
     {
-        int activeCellCounter = 0;
         int b = 1;
         int c = 2;
+
+        Vector3 min = fieldOrigin;
+        Vector3 max = fieldMax;
+
+
         for (int a = 0; a < navMesh.navMesh.indices.Length; a += 3)
         {
             colliderEmpty = GameObject.Find("ColliderEmpty");
 
+
             Vector3[] trianglePoints = { navMesh.navMesh.vertices[navMesh.navMesh.indices[a]], navMesh.navMesh.vertices[navMesh.navMesh.indices[b]], navMesh.navMesh.vertices[navMesh.navMesh.indices[c]] };
 
-            GameObject.Instantiate(Cube, trianglePoints[0], Quaternion.identity);
-            GameObject.Instantiate(Cube, trianglePoints[1], Quaternion.identity);
-            GameObject.Instantiate(Cube, trianglePoints[2], Quaternion.identity);
+
+
 
             //Find min and Max Coordinates in World Space of the given triangle
             float minX = int.MaxValue, minY = int.MaxValue, minZ = int.MaxValue;
@@ -214,13 +243,20 @@ public class FlowField
                     {
 
                         float cellsize = FlowFieldCell.cellSize;
-                        Vector3 unten = flowFieldCells[x, y, z].center - new Vector3(cellsize / 2, cellsize / 2, cellsize / 2);
-                        Vector3 oben = flowFieldCells[x, y, z].center + new Vector3(cellsize / 2, cellsize / 2, cellsize / 2);
+                        Vector3 newCenter = new Vector3(min.x + cellsize * x + cellsize / 2, min.y + cellsize * y + cellsize / 2, min.z + cellsize * z + cellsize / 2);
+                        Vector3 unten = newCenter - new Vector3(cellsize / 2, cellsize / 2, cellsize / 2);
+                        Vector3 oben = newCenter + new Vector3(cellsize / 2, cellsize / 2, cellsize / 2);
                         if (IntersectionTest.IsIntersecting(new IAABoxImpl(unten, oben), new TriangleImpl(trianglePoints[0], trianglePoints[1], trianglePoints[2])))
                         {
+                            flowFieldCells[x, y, z] = new FlowFieldCell(newCenter, x, y, z);
                             flowFieldCells[x, y, z].containsTriangle = true;
+                            if (!loadFromFile)
+                            {
+                                seri.x.Add(x);
+                                seri.y.Add(y);
+                                seri.z.Add(z);
+                            }
                         }
-
 
                     }
                 }
@@ -232,23 +268,22 @@ public class FlowField
             //    break;
         }
 
+        //for (int x = 0; x < cellsX; x++)
+        //{
+        //    for (int y = 0; y < cellsY; y++)
+        //    {
+        //        for (int z = 0; z < cellsZ; z++)
+        //        {
+        //            if (flowFieldCells[x, y, z].containsTriangle == false)
+        //                flowFieldCells[x, y, z] = null;
+        //            else activeCellCounter++;
 
-        for (int x = 0; x < cellsX; x++)
-        {
-            for (int y = 0; y < cellsY; y++)
-            {
-                for (int z = 0; z < cellsZ; z++)
-                {
-                    if (flowFieldCells[x, y, z].containsTriangle == false)
-                        flowFieldCells[x, y, z] = null;
-                    else activeCellCounter++;
+        //        }
 
-                }
+        //    }
 
-            }
-
-        }
-        Debug.Log("activeCellCounter: " + activeCellCounter);
+        //}
+        //Debug.Log("ActiveCellCounter: " + activeCellCounter);
     }
 
     public void IntegrateCompleteField(Vector3 goal)
@@ -265,6 +300,7 @@ public class FlowField
         AddNeighbours(goalIndices[0], goalIndices[1], goalIndices[2], activeCells);
         int counter = 0;
         int loops = GameObject.Find("Main Camera").GetComponent<SceneHandler>().loops;
+        if (loops < 0) loops = int.MaxValue;
 
         while (activeCells.Count > 0 && counter < loops)
         {
@@ -273,8 +309,6 @@ public class FlowField
             {
                 cellCounter++;
                 flowFieldCells[cell[0], cell[1], cell[2]].integrationValue = FindIntegrationValue(cell);
-                //Debug.Log(new Vector3(cell[0], cell[1], cell[2]));
-                //Debug.Log("Integration Value: " + flowFieldCells[cell[0], cell[1], cell[2]].integrationValue);
             }
             List<int[]> temp = activeCells;
             activeCells = new List<int[]>();
@@ -358,24 +392,73 @@ public class FlowField
         if (pos.y < fieldOrigin.y)
             y = 0;
         else if (pos.y > fieldOrigin.y + cellsY * cellSize)
-            y = cellsX - 1;
+            y = cellsY - 1;
         else
             y = Mathf.FloorToInt(posScaled.y);
 
         if (pos.z < fieldOrigin.z)
             z = 0;
         else if (pos.z > fieldOrigin.z + cellsZ * cellSize)
-            z = cellsX - 1;
+            z = cellsZ - 1;
         else
             z = Mathf.FloorToInt(posScaled.z);
 
         if (flowFieldCells[x, y, z] != null) return;
-        while (y >= 0 && flowFieldCells[x, y, z] == null) y--;
+        while (y > 0 && flowFieldCells[x, y, z] == null) y--;
+        if (flowFieldCells[x, y, z] != null) return;
+        while (y < cellsY && flowFieldCells[x, y, z] == null) y++;
+
+    }
+    private bool isInField(int x, int y, int z)
+    {
+        return (x >= 0 || x < cellsX) && (y >= 0 || y < cellsY) && (z >= 0 || z < cellsZ);
     }
 
+    public FlowFieldCell GetRandomNeighbour(int x, int y, int z)
+    {
+        int available = 26;
+        bool[,,] neighbours = new bool[3, 3, 3];
+        for (int a = x; a <= x + 1; a++)
+        {
+            for (int b = y; b < y + 1; b++)
+            {
+                for (int c = z; c < z + 1; c++)
+                {
+                    neighbours[a, b, c] = true;
+                    if (isInField(a, b, c) && flowFieldCells[a, b, c] == null)
+                    {
+                        available--;
+                        neighbours[a, b, c] = false;
+                    }
+                }
+            }
+        }
+        int rand = UnityEngine.Random.Range(0, available);
+
+        while (available > 0)
+        {
+            int counter = 0;
+            for (int a = x; a <= x + 1; a++)
+            {
+                for (int b = y; b < y + 1; b++)
+                {
+                    for (int c = z; c < z + 1; c++)
+                    {
+                        if (counter == rand)
+                            return flowFieldCells[a, b, c];
+                        if (neighbours[a, b, c] == true)
+                            counter++;
+                    }
+                }
+            }
+
+        }
+        return flowFieldCells[0, 0, 0];
+    }
     public void GenerateVectorField()
     {
         PrepFieldForIteration(false);
+        int counter = 0;
         List<int[]> neighbours = new List<int[]>();
         for (int x = 0; x < cellsX; x++)
         {
@@ -387,18 +470,20 @@ public class FlowField
                     neighbours.Clear();
                     flowFieldCells[x, y, z].queed = false;
 
-                    AddNeighbours(x, y, z, neighbours, false,false);
+                    AddNeighbours(x, y, z, neighbours, false, false);
                     if (neighbours.Count == 0) continue;
                     int highest = FindHighestIntegration(neighbours);
                     int[] highestNeighbour = neighbours[highest];
                     flowFieldCells[x, y, z].flowValue = flowFieldCells[highestNeighbour[0], highestNeighbour[1], highestNeighbour[2]].center - flowFieldCells[x, y, z].center;
-
+                    counter++;
+                    if (flowFieldCells[x, y, z].flowValue == Vector3.zero)
+                        Debug.Log("");
                     //Debug.Log("Flow Value: " + flowFieldCells[x, y, z].flowValue);
                     //Debug.Break();
                 }
             }
         }
-
+        Debug.Log("Generated Vector for: " + counter);
 
     }
     private int FindHighestIntegration(List<int[]> list)
@@ -421,4 +506,18 @@ public class FlowField
         if (flowFieldCells[x, y, z] == null) return Vector3.zero;
         return flowFieldCells[x, y, z].flowValue;
     }
+
+
 }
+
+[Serializable]
+public class SeriField
+{
+    public float originX;
+    public float originY;
+    public float originZ;
+    public List<int> x = new List<int>();
+    public List<int> y = new List<int>();
+    public List<int> z = new List<int>();
+}
+

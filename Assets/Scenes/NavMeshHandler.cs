@@ -24,12 +24,11 @@ public class NavMeshHandler
         navMesh = NavMesh.CalculateTriangulation();
         //GenerateGraph();
         Debug.Log("isDebugBuild: " + Debug.isDebugBuild);
-        VisualizeNavMeshTriangles();
 
 
     }
 
-    private void VisualizeNavMeshTriangles()
+    public  void VisualizeNavMeshTriangles()
     {
         int b = 1;
         int c = 2;
@@ -39,6 +38,9 @@ public class NavMeshHandler
             Debug.DrawLine(navMesh.vertices[navMesh.indices[a]], navMesh.vertices[navMesh.indices[c]], Color.red, 10000);
             Debug.DrawLine(navMesh.vertices[navMesh.indices[b]], navMesh.vertices[navMesh.indices[c]], Color.red, 10000);
 
+            GameObject.Instantiate(Cube, navMesh.vertices[navMesh.indices[a]], Quaternion.identity);
+            GameObject.Instantiate(Cube, navMesh.vertices[navMesh.indices[b]], Quaternion.identity);
+            GameObject.Instantiate(Cube, navMesh.vertices[navMesh.indices[c]], Quaternion.identity);
             //GameObject.Instantiate(Cube, navMesh.vertices[navMesh.indices[a]], Quaternion.identity);
             //GameObject.Instantiate(Cube, navMesh.vertices[navMesh.indices[b]], Quaternion.identity);
             //GameObject.Instantiate(Cube, navMesh.vertices[navMesh.indices[c]], Quaternion.identity);

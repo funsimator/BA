@@ -1,13 +1,18 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class MovementTest : MonoBehaviour
 {
     public int x, y, z = 0;
     public Vector3 movementDir = Vector3.zero;
-    float timeToMove = 0.3f;
+    public float speed = 1f;
     public FlowFieldCell cell;
+    public NavMeshAgent agent;
+    public GameObject visuCube;
+    private GameObject visuInstance;
+    public Transform position;
 
     // Start is called before the first frame update
     void Start()
@@ -16,19 +21,33 @@ public class MovementTest : MonoBehaviour
     }
     public void Init()
     {
-        cell = FlowField.flowField.GetNearestCell(transform.position);
-        movementDir = cell.flowValue;
+        cell = FlowField.flowField.GetNearestCell(position.position);
+        visuInstance = GameObject.Instantiate(visuCube);
+        visuInstance.transform.localScale = new Vector3(FlowFieldCell.cellSize, FlowFieldCell.cellSize, FlowFieldCell.cellSize);
+        if (cell != null)
+        {
+            movementDir = cell.flowValue;
+            agent.SetDestination(cell.center + movementDir);
+            visuInstance.transform.position = cell.center;
+        }
     }
 
     // Update is called once per frame
     void Update()
     {
-        float deltaMove = Time.deltaTime / timeToMove;
-        transform.Translate(movementDir * deltaMove);
-        if (cell.IsInCell(transform.position)) return;
-        cell = FlowField.flowField.GetNearestCell(transform.position);
+        //float deltaMove = Time.deltaTime / (1 / speed);
+        //transform.Translate(movementDir * deltaMove);
+        if (cell != null && cell.IsInCell(position.position))
+        {
+            return;
+        }
+        cell = FlowField.flowField.GetNearestCell(position.position);
+        if (cell == null) return;
+        visuInstance.transform.position = cell.center;
         movementDir = cell.flowValue;
-        //Debug.Log(cell.center);
+        agent.SetDestination(cell.center + movementDir);
+
+
 
     }
 }

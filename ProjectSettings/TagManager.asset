@@ -5,6 +5,8 @@ TagManager:
   serializedVersion: 2
   tags:
   - Target
+  - Visu
+  - Agent
   layers:
   - Default
   - TransparentFX

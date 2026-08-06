@@ -1,7 +1,14 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEditor.SearchService;
 using UnityEngine;
+
+[Serializable]
+public class FlowFieldCellSerialize
+{
+
+}
 
 public class FlowFieldCell
 {
@@ -33,10 +40,16 @@ public class FlowFieldCell
     /// <summary>
     /// This is radius of the cell
     /// </summary>
-    public static float cellSize { get; set; } = 0.5f;
+    public static float cellSize { get; set; } = 1f;
 
     public bool hasAgent = false;
-
+    /// <summary>
+    /// Constructor for a new Flow Field Cell
+    /// </summary>
+    /// <param name="center">Center in world Space</param>
+    /// <param name="x">Index in Flow Field</param>
+    /// <param name="y">Index in Flow Field</param>
+    /// <param name="z">Index in Flow Field</param>
     public FlowFieldCell(Vector3 center, int x, int y, int z)
     {
         this.center = center;
@@ -52,17 +65,21 @@ public class FlowFieldCell
 
     public bool IsInCell(Vector3 pos)
     {
-        if (pos.x < center.x - cellSize / 2) return false;
-        if (pos.y < center.y - cellSize / 2) return false;
-        if (pos.z < center.z - cellSize / 2) return false;
-        if (pos.x > center.x + cellSize / 2) return false;
-        if (pos.y > center.y + cellSize / 2) return false;
-        if (pos.z > center.z + cellSize / 2) return false;
+        if (pos.x < center.x - cellSize / 2f) return false;
+        if (pos.y < center.y - cellSize / 2f) return false;
+        if (pos.z < center.z - cellSize / 2f) return false;
+        if (pos.x > center.x + cellSize / 2f) return false;
+        if (pos.y > center.y + cellSize / 2f) return false;
+        if (pos.z > center.z + cellSize / 2f) return false;
         return true;
     }
 
-    public void DrawCell()
+
+
+    public void DrawCell(bool drawVectorOnly)
     {
+        DrawFlowValue();
+        if (drawVectorOnly) return;
         if (hasBeenDrawn || integrationValue == float.PositiveInfinity) return;
         hasBeenDrawn = true;
         float halfCellSize = cellSize / 2 - 0.01f;
@@ -85,7 +102,6 @@ public class FlowFieldCell
         Debug.DrawLine(new Vector3(center.x - halfCellSize, center.y - halfCellSize, center.z + halfCellSize), new Vector3(center.x - halfCellSize, center.y - halfCellSize, center.z - halfCellSize), color, 10000);
         Debug.DrawLine(new Vector3(center.x + halfCellSize, center.y - halfCellSize, center.z + halfCellSize), new Vector3(center.x + halfCellSize, center.y - halfCellSize, center.z - halfCellSize), color, 10000);
 
-        DrawFlowValue();
 
     }
 

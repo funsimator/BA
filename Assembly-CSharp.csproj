@@ -54,12 +54,16 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Assets\Scenes\NavMeshHandler.cs" />
+    <Compile Include="Assets\Scenes\MovementTest.cs" />
     <Compile Include="Assets\Scenes\FlowField.cs" />
     <Compile Include="Assets\Scenes\FlowFieldCell.cs" />
     <Compile Include="Assets\Scenes\SceneHandler.cs" />
     <Compile Include="Assets\Scenes\PathfindingTester.cs" />
     <Compile Include="Assets\Scenes\TriangleBoxTest.cs" />
-    <Compile Include="Assets\Scenes\MovementTest.cs" />
+    <Compile Include="Assets\Scenes\TargetMovement.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Assets\JSON.txt" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">
