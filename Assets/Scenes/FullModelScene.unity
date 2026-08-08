@@ -186,6 +186,7 @@ MonoBehaviour:
   agent: {fileID: 26650943}
   visuCube: {fileID: 2309461323043379891, guid: 31fde0b92151ff948ac66422de2e9ca3, type: 3}
   position: {fileID: 407956098}
+  hasBeenReached: 0
 --- !u!136 &26650945
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -327,6 +328,7 @@ MonoBehaviour:
   agent: {fileID: 93143099}
   visuCube: {fileID: 2309461323043379891, guid: 31fde0b92151ff948ac66422de2e9ca3, type: 3}
   position: {fileID: 1159160779}
+  hasBeenReached: 0
 --- !u!136 &93143101
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -561,6 +563,7 @@ MonoBehaviour:
   agent: {fileID: 359560370}
   visuCube: {fileID: 2309461323043379891, guid: 31fde0b92151ff948ac66422de2e9ca3, type: 3}
   position: {fileID: 1838940673}
+  hasBeenReached: 0
 --- !u!136 &359560372
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -762,6 +765,7 @@ MonoBehaviour:
   agent: {fileID: 1006641533}
   visuCube: {fileID: 2309461323043379891, guid: 31fde0b92151ff948ac66422de2e9ca3, type: 3}
   position: {fileID: 2069030306}
+  hasBeenReached: 0
 --- !u!136 &1006641535
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -1080,7 +1084,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1069969538}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -45.62, y: 20.311, z: -24.9}
+  m_LocalPosition: {x: -86.9, y: 21.24, z: 61.3}
   m_LocalScale: {x: 0.5, y: 0.5, z: 0.5}
   m_Children: []
   m_Father: {fileID: 0}
@@ -1098,6 +1102,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 721d7c14c80b42e4cbd37bc26116fe95, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  timeToMove: 3
+  visu: {fileID: 1433600415}
 --- !u!1 &1159160778
 GameObject:
   m_ObjectHideFlags: 0
@@ -1191,6 +1197,7 @@ MonoBehaviour:
   agent: {fileID: 1257040020}
   visuCube: {fileID: 2309461323043379891, guid: 31fde0b92151ff948ac66422de2e9ca3, type: 3}
   position: {fileID: 1272236542}
+  hasBeenReached: 0
 --- !u!136 &1257040022
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -1299,6 +1306,11 @@ Transform:
   m_Father: {fileID: 1257040025}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1433600415 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 2309461323043379891, guid: 31fde0b92151ff948ac66422de2e9ca3, type: 3}
+  m_PrefabInstance: {fileID: 1068638141}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1602470817
 GameObject:
   m_ObjectHideFlags: 0
@@ -1396,11 +1408,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   loops: -1
-  DrawGraph: 0
+  DrawGraph: 1
   DrawVectorOnly: 0
   DrawNavMesh: 0
   LoadFieldFromFile: 1
+  LogTickTimes: 0
   FlowFieldJSON: {fileID: 4900000, guid: f93532e4a26b8554f89061ca12e45a06, type: 3}
+  agents: []
 --- !u!1 &1838940672
 GameObject:
   m_ObjectHideFlags: 0
@@ -1472,6 +1486,7 @@ MonoBehaviour:
   agent: {fileID: 1882691926}
   visuCube: {fileID: 2309461323043379891, guid: 31fde0b92151ff948ac66422de2e9ca3, type: 3}
   position: {fileID: 1006122388}
+  hasBeenReached: 0
 --- !u!136 &1882691922
 CapsuleCollider:
   m_ObjectHideFlags: 0

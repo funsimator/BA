@@ -13,6 +13,7 @@ public class MovementTest : MonoBehaviour
     public GameObject visuCube;
     private GameObject visuInstance;
     public Transform position;
+    public bool hasBeenReached = false;
 
     // Start is called before the first frame update
     void Start()
@@ -37,7 +38,7 @@ public class MovementTest : MonoBehaviour
     {
         //float deltaMove = Time.deltaTime / (1 / speed);
         //transform.Translate(movementDir * deltaMove);
-        if (cell != null && cell.IsInCell(position.position))
+        if (cell != null && cell.IsInCell(position.position) && agent.velocity != Vector3.zero)
         {
             return;
         }

@@ -13,30 +13,17 @@ public class SceneHandler : MonoBehaviour
     public bool DrawVectorOnly;
     public bool DrawNavMesh;
     public bool LoadFieldFromFile;
+    public bool LogTickTimes;
     public TextAsset FlowFieldJSON;
 
     private int frameCounter = 0;
     private float[] deltaTimes = new float[10];
-    private List<MovementTest> agents;
+    public List<MovementTest> agents;
 
     // Start is called before the first frame update
     void Start()
     {
-
-    }
-
-    private void OnEnable()
-    {
-        NavMeshHandler test = NavMeshHandler.navMeshHandler;
-
-        FlowField.flowField.GenerateGraph(LoadFieldFromFile, FlowFieldJSON);
-        if (DrawNavMesh) test.VisualizeNavMeshTriangles();
-
-        FlowField.flowField.IntegrateCompleteField(GameObject.FindGameObjectWithTag("Target").transform.position);
-        FlowField.flowField.GenerateVectorField();
-
-        if (DrawGraph) FlowField.flowField.DrawGraph(DrawVectorOnly);
-
+        //FlowField.flowField.IntegrateCompleteField(GameObject.FindGameObjectWithTag("Target").transform.position);
         GameObject[] temp = GameObject.FindGameObjectsWithTag("Agent");
         agents = new List<MovementTest>(temp.Length);
         foreach (GameObject go in temp)
@@ -48,21 +35,50 @@ public class SceneHandler : MonoBehaviour
 
             go.Init();
         }
+
+        Vector3 targetPos = GameObject.FindGameObjectWithTag("Target").transform.position;
+        FlowField.flowField.IntegrateWithHeuristic(targetPos, new AStar());
+        foreach (MovementTest go in agents)
+        {
+
+            go.Init();
+        }
+        //if (DrawGraph) FlowField.flowField.DrawGraph(DrawVectorOnly);
+
+    }
+
+    private void Awake()
+    {
+        NavMeshHandler test = NavMeshHandler.navMeshHandler;
+
+        FlowField.flowField.GenerateGraph(LoadFieldFromFile, FlowFieldJSON);
+        if (DrawNavMesh) test.VisualizeNavMeshTriangles();
+
+    }
+
+    private void OnEnable()
+    {
+
+
     }
 
     // Update is called once per frame
     void Update()
     {
-        deltaTimes[frameCounter] = Time.deltaTime;
-        frameCounter++;
-        if (frameCounter > 9)
+        if (LogTickTimes)
         {
-            float total = 0f;
-            foreach (float time in deltaTimes)
-                total += time;
-            Debug.Log("Average Tick time: " + total / 10);
 
-            frameCounter = 0;
+            deltaTimes[frameCounter] = Time.deltaTime;
+            frameCounter++;
+            if (frameCounter > 9)
+            {
+                float total = 0f;
+                foreach (float time in deltaTimes)
+                    total += time;
+                Debug.Log("Average Tick time: " + total / 10);
+
+                frameCounter = 0;
+            }
         }
         if (lastLoops != loops)
         {

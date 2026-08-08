@@ -4,32 +4,36 @@ using UnityEngine;
 
 public class TargetMovement : MonoBehaviour
 {
-    private int x, y, z;
+    private CellIndex cellI;
     private float timer = 0f;
+    public float timeToMove;
+
+    GameObject target;
+    public GameObject visu;
     // Start is called before the first frame update
     void Start()
     {
-
-
+        FlowFieldCell cell = FlowField.flowField.GetNearestCell(GameObject.FindGameObjectWithTag("Target").transform.position);
+        cellI = new CellIndex(cell.x, cell.y, cell.z);
 
     }
 
     private void OnEnable()
     {
-        FlowFieldCell cell = FlowField.flowField.GetNearestCell(GameObject.FindGameObjectWithTag("Target").transform.position);
-        x = cell.x; y = cell.y; z = cell.z;
+
     }
 
     // Update is called once per frame
     void Update()
     {
         timer += Time.deltaTime;
-        if (timer > 0.5f)
+        if (timer > timeToMove)
         {
-            timer -= 0.5f;
-            FlowFieldCell cell = FlowField.flowField.GetRandomNeighbour(x, y, z);
-            x = cell.x; y = cell.y; z = cell.z;
-            FlowField.flowField.IntegrateCompleteField(cell.center);
+            timer -= timeToMove;
+            FlowFieldCell cell = FlowField.flowField.GetRandomNeighbour(cellI);
+            cellI.x = cell.x; cellI.y = cell.y; cellI.z = cell.z;
+            FlowField.flowField.IntegrateWithHeuristic(cell.center, new AStar());
+            visu.transform.position = cell.center;
         }
     }
 }
