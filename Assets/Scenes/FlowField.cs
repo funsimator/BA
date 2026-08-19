@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
+using System.Transactions;
 using UnityEditor.Experimental.GraphView;
 using UnityEditor.SearchService;
 using UnityEngine;
@@ -23,11 +24,19 @@ public class FlowField
     int cellsY = 0;
     int cellsZ = 0;
 
+    private FlowFieldCell lastblock = null;
+
+    private int blockRadius = 15;
+
     private FlowFieldCell[,,] flowFieldCells = null;
+
+    private FlowFieldCell[,,] altFlowFieldCells = null;
 
     private Vector3 fieldOrigin = Vector3.zero;
 
     private Vector3 fieldMax = Vector3.zero;
+
+    public MovementTest dummyEmpty;
 
     private GameObject visuCube = Resources.Load<GameObject>("FlowFieldCube");
 
@@ -35,7 +44,7 @@ public class FlowField
 
     private SeriField seri = new SeriField();
 
-    private Queue<FlowFieldCell> integratedCells = new Queue<FlowFieldCell>();
+    private int maxCellsPerTick = 3000;
 
     private bool loadFromFile = false;
 
@@ -43,7 +52,15 @@ public class FlowField
 
     private List<MovementTest> agents = null;
 
+    private MovementTest nearestAgent = null;
+
+    private IHeuristic heuristic = null;
+
     SortedList<float, FlowFieldCell> activeWavefront = new SortedList<float, FlowFieldCell>();
+
+    private bool resumeDivergence = false;
+
+    private FlowFieldCell[,,] currentField;
 
     int currentWaveFront = 0;
     private FlowField()
@@ -52,58 +69,167 @@ public class FlowField
 
     }
 
-    public void IntegrateWithHeuristic(Vector3 goal, IHeuristic heuristic)
+    public bool IntegrateWithHeuristic(Vector3 goal, IHeuristic heuristic, int fieldIndex, bool resume = false, MovementTest to = null)
     {
         Debug.Log("IntegrateWithHeuristic");
-        integratedCells.Clear();
-        currentWaveFront++;
-        if (sceneHandler == null) sceneHandler = GameObject.FindGameObjectWithTag("MainCamera").GetComponent<SceneHandler>();
-        agents = new List<MovementTest>(sceneHandler.agents);
-        heuristic.target = agents.First().cell.center;
-        activeWavefront = new SortedList<float, FlowFieldCell>(new DuplicateKeyComparer<float>());
-        FlowFieldCell start = GetNearestCell(goal);
-        start.integrationValue = 0;
-        start.cellWithLowestIntegration = start;
-        activeWavefront.Add(0, start);
-
-
-
-        while (agents.Count > 0 && activeWavefront.Count > 0)
+        this.heuristic = heuristic;
+        FlowFieldCell start = GetNearestCell(goal, fieldIndex);
+        Queue<FlowFieldCell> integratedCells = new Queue<FlowFieldCell>();
+        SetCurrentField(fieldIndex);
+        if (!resume)
         {
-            heuristic.target = agents.First().cell.center;
+            activeWavefront.Clear();
+            if (to == null) currentWaveFront++;
+            if (sceneHandler == null) sceneHandler = GameObject.FindGameObjectWithTag("MainCamera").GetComponent<SceneHandler>();
+            agents = new List<MovementTest>(sceneHandler.agents);
+            nearestAgent = UpdateAgents(start);
+            activeWavefront = new SortedList<float, FlowFieldCell>(new DuplicateKeyComparer<float>());
+            start.integrationValue = 0;
+            start.cellWithLowestIntegration = start;
+            activeWavefront.Add(0, start);
+
+        }
+
+        heuristic.target = nearestAgent.cell.center;
+
+        bool portalMode = false;
+        if (to != null)
+        {
+            agents.Clear();
+            agents.Add(to);
+            if (to.cell != null)
+                heuristic.target = to.cell.center;
+        }
+
+
+        while (agents.Count > 0 && activeWavefront.Count > 0 && (integratedCells.Count < maxCellsPerTick || to != null))
+        {
+            nearestAgent = UpdateAgents(start);
+            heuristic.target = nearestAgent.cell.center;
             FlowFieldCell currentAdvance = activeWavefront.First().Value;
             activeWavefront.RemoveAt(0);
-            currentAdvance.integrationValue = currentAdvance.cellWithLowestIntegration.integrationValue + (currentAdvance.cellWithLowestIntegration.center - currentAdvance.center).magnitude;
-            AdvanceWavefront(currentAdvance, heuristic);
 
-            agents.RemoveAll(item => item.cell == currentAdvance);
+            currentAdvance.integrationValue = currentAdvance.cellWithLowestIntegration.integrationValue + (currentAdvance.cellWithLowestIntegration.center - currentAdvance.center).magnitude;
+
+
+            if (currentAdvance.portalIndex > 0 /*&& currentAdvance.previousWaveFront == currentWaveFront - 1*/)
+            {
+                agents.RemoveAll(item => item.portal == currentAdvance.portalIndex);
+                //activeWavefront.Clear();
+                //portalMode = true;
+            }
+
+            AdvanceWavefront(currentAdvance, heuristic, portalMode);
+
+            agents.RemoveAll(item => (item.cell.x == currentAdvance.x && item.cell.y == currentAdvance.y && item.cell.z == currentAdvance.z));
+            if (to != null && nearestAgent.cell.x == currentAdvance.x && nearestAgent.cell.y == currentAdvance.y && nearestAgent.cell.z == currentAdvance.z) break;
 
             integratedCells.Enqueue(currentAdvance);
         }
-        GenerateVectorField();
+
+        if (to != null)
+            FilldDeviationEndpoint(to.cell, 1, integratedCells);
+
+        GenerateVectorField(integratedCells, sceneHandler.DrawGraph && fieldIndex == 1);
+        if (integratedCells.Count != maxCellsPerTick && fieldIndex == 0) DivergePath(goal);
+        return (integratedCells.Count == maxCellsPerTick);
     }
 
-
-
-    private void PrepFieldForIteration(bool resetIntegration = true)
+    private void FilldDeviationEndpoint(FlowFieldCell cell, int fieldIndex, Queue<FlowFieldCell> integratedCells)
     {
-        integratedCells.Clear();
-        for (int x = 0; x < cellsX; x++)
+        SetCurrentField(fieldIndex);
+        for (int x = 0; x < 3; x++)
         {
-            for (int y = 0; y < cellsY; y++)
+            for (int y = 0; y < 3; y++)
             {
-                for (int z = 0; z < cellsZ; z++)
+                for (int z = 0; z < 3; z++)
                 {
-                    if (flowFieldCells[x, y, z] != null)
+                    if (isInField(cell.x + x, cell.y + y, cell.z + z))
                     {
-                        if (resetIntegration) flowFieldCells[x, y, z].integrationValue = float.PositiveInfinity;
-                        flowFieldCells[x, y, z].queed = false;
-
+                        FillGraph(currentField[cell.x + x, cell.y + y, cell.z + z], fieldIndex);
+                        integratedCells.Enqueue(currentField[cell.x + x, cell.y + y, cell.z + z]);
                     }
+                    if (isInField(cell.x - x, cell.y - y, cell.z - z))
+                    {
+                        FillGraph(currentField[cell.x - x, cell.y - y, cell.z - z], fieldIndex);
+                        integratedCells.Enqueue(currentField[cell.x - x, cell.y - y, cell.z - z]);
+                    }
+
                 }
             }
         }
     }
+
+    public Vector3 FillGraph(FlowFieldCell cell, int fieldIndex)
+    {
+        Debug.Log("Fill Graph!");
+        if (fieldIndex == 0) currentField = flowFieldCells;
+        else currentField = altFlowFieldCells;
+        float lowestIntegration = float.PositiveInfinity;
+        FlowFieldCell lowestCell = cell;
+
+        for (int a = cell.x - 1; a <= cell.x + 1; a++)
+        {
+            for (int b = cell.z - 1; b <= cell.z + 1; b++)
+            {
+                if (isInField(a, cell.y - 1, b) && !currentField[a, cell.y - 1, b].isBLocked)
+                {
+                    if (currentField[a, cell.y - 1, b].integrationValue < lowestIntegration)
+                    {
+                        lowestIntegration = currentField[a, cell.y - 1, b].integrationValue;
+                        lowestCell = currentField[a, cell.y - 1, b];
+                    }
+                }
+
+                if (isInField(a, cell.y, b) && !currentField[a, cell.y, b].isBLocked)
+                {
+                    if (currentField[a, cell.y, b].integrationValue < lowestIntegration)
+                    {
+                        lowestIntegration = currentField[a, cell.y, b].integrationValue;
+                        lowestCell = currentField[a, cell.y, b];
+                    }
+
+                }
+
+                if (isInField(a, cell.y + 1, b) && !currentField[a, cell.y + 1, b].isBLocked)
+                {
+                    if (currentField[a, cell.y + 1, b].integrationValue < lowestIntegration)
+                    {
+                        lowestIntegration = currentField[a, cell.y + 1, b].integrationValue;
+                        lowestCell = currentField[a, cell.y + 1, b];
+                    }
+
+                }
+            }
+
+        }
+
+        cell.flowValue = lowestCell.center - cell.center;
+        cell.integrationValue = lowestIntegration + cell.flowValue.magnitude;
+        cell.cellWithLowestIntegration = lowestCell;
+        return cell.flowValue;
+    }
+
+
+    //private void PrepFieldForIteration(bool resetIntegration = true)
+    //{
+    //    integratedCells.Clear();
+    //    for (int x = 0; x < cellsX; x++)
+    //    {
+    //        for (int y = 0; y < cellsY; y++)
+    //        {
+    //            for (int z = 0; z < cellsZ; z++)
+    //            {
+    //                if (flowFieldCells[x, y, z] != null)
+    //                {
+    //                    if (resetIntegration) flowFieldCells[x, y, z].integrationValue = float.PositiveInfinity;
+    //                    flowFieldCells[x, y, z].queed = false;
+
+    //                }
+    //            }
+    //        }
+    //    }
+    //}
 
     private void LoadFromFile()
     {
@@ -111,22 +237,26 @@ public class FlowField
         BinaryFormatter formatter = new BinaryFormatter();
         seri = (SeriField)formatter.Deserialize(fs);
         flowFieldCells = new FlowFieldCell[seri.x[0], seri.y[0], seri.z[0]];
+        altFlowFieldCells = new FlowFieldCell[seri.x[0], seri.y[0], seri.z[0]];
         fieldOrigin = new Vector3(seri.originX, seri.originY, seri.originZ);
         GameObject.FindGameObjectWithTag("Visu").transform.position = fieldOrigin;
         fieldMax = fieldOrigin + new Vector3(seri.x[0] * FlowFieldCell.cellSize, seri.y[0] * FlowFieldCell.cellSize, seri.z[0] * FlowFieldCell.cellSize);
+
         cellsX = seri.x[0];
         cellsY = seri.y[0];
         cellsZ = seri.z[0];
         for (int i = 1; i < seri.x.Count; i++)
         {
-            flowFieldCells[seri.x[i], seri.y[i], seri.z[i]] = new FlowFieldCell(fieldOrigin + new Vector3(seri.x[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.y[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.z[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2), seri.x[i], seri.y[i], seri.z[i]);
 
+            flowFieldCells[seri.x[i], seri.y[i], seri.z[i]] = new FlowFieldCell(fieldOrigin + new Vector3(seri.x[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.y[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.z[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2), seri.x[i], seri.y[i], seri.z[i], seri.portalIndex[i - 1]);
+            altFlowFieldCells[seri.x[i], seri.y[i], seri.z[i]] = new FlowFieldCell(fieldOrigin + new Vector3(seri.x[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.y[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2, seri.z[i] * FlowFieldCell.cellSize + FlowFieldCell.cellSize / 2), seri.x[i], seri.y[i], seri.z[i], seri.portalIndex[i - 1]);
         }
 
     }
 
     public void GenerateGraph(bool loadFromFile, TextAsset file)
     {
+        dummyEmpty = GameObject.FindGameObjectWithTag("Dummy").GetComponent<MovementTest>();
         this.loadFromFile = loadFromFile;
         if (loadFromFile)
         {
@@ -167,22 +297,22 @@ public class FlowField
         }
     }
 
-    public void DrawGraph(bool drawVectorOnly)
-    {
-        for (int x = 0; x < cellsX; x++)
-        {
-            for (int y = 0; y < cellsY; y++)
-            {
-                for (int z = 0; z < cellsZ; z++)
-                {
-                    if (flowFieldCells[x, y, z] != null)
-                        flowFieldCells[x, y, z].DrawCell(drawVectorOnly);
-                }
+    //public void DrawGraph(bool drawVectorOnly)
+    //{
+    //    for (int x = 0; x < cellsX; x++)
+    //    {
+    //        for (int y = 0; y < cellsY; y++)
+    //        {
+    //            for (int z = 0; z < cellsZ; z++)
+    //            {
+    //                if (flowFieldCells[x, y, z] != null)
+    //                    flowFieldCells[x, y, z].DrawCell(drawVectorOnly);
+    //            }
 
-            }
+    //        }
 
-        }
-    }
+    //    }
+    //}
 
     private void CleanGraph()
     {
@@ -296,7 +426,6 @@ public class FlowField
                         if (IntersectionTest.IsIntersecting(new IAABoxImpl(unten, oben), new TriangleImpl(trianglePoints[0], trianglePoints[1], trianglePoints[2])))
                         {
                             flowFieldCells[x, y, z] = new FlowFieldCell(newCenter, x, y, z);
-                            flowFieldCells[x, y, z].containsTriangle = true;
                             if (!loadFromFile)
                             {
                                 seri.x.Add(x);
@@ -311,119 +440,222 @@ public class FlowField
 
             b += 3;
             c += 3;
-            //if (a > 3)
-            //    break;
         }
 
-        //for (int x = 0; x < cellsX; x++)
-        //{
-        //    for (int y = 0; y < cellsY; y++)
-        //    {
-        //        for (int z = 0; z < cellsZ; z++)
-        //        {
-        //            if (flowFieldCells[x, y, z].containsTriangle == false)
-        //                flowFieldCells[x, y, z] = null;
-        //            else activeCellCounter++;
+        CreatePortals();
 
-        //        }
-
-        //    }
-
-        //}
-        //Debug.Log("ActiveCellCounter: " + activeCellCounter);
     }
 
-    public void IntegrateCompleteField(Vector3 goal)
+    //public void IntegrateCompleteField(Vector3 goal)
+    //{
+    //    Debug.Log("Integrating Complete Field!");
+    //    PrepFieldForIteration();
+    //    int[] goalIndices = new int[3];
+    //    GetNearestCell(goal, out goalIndices[0], out goalIndices[1], out goalIndices[2]);
+    //    flowFieldCells[goalIndices[0], goalIndices[1], goalIndices[2]].integrationValue = 0f;
+    //    flowFieldCells[goalIndices[0], goalIndices[1], goalIndices[2]].queed = true;
+
+    //    float currentIntegration = 0f;
+
+    //    List<CellIndex> activeCells = new List<CellIndex>();
+    //    AddNeighbours(goalIndices[0], goalIndices[1], goalIndices[2], activeCells);
+    //    int counter = 0;
+    //    int loops = GameObject.Find("Main Camera").GetComponent<SceneHandler>().loops;
+    //    if (loops < 0) loops = int.MaxValue;
+
+    //    while (activeCells.Count > 0 && counter < loops)
+    //    {
+    //        int cellCounter = 0;
+    //        foreach (var cell in activeCells)
+    //        {
+    //            cellCounter++;
+    //            CellIndex prevCell;
+    //            flowFieldCells[cell.x, cell.y, cell.z].integrationValue = FindIntegrationValue(cell, out prevCell);
+    //            flowFieldCells[cell.x, cell.y, cell.z].cellWithLowestIntegration = flowFieldCells[prevCell.x, prevCell.y, prevCell.z];
+
+    //            integratedCells.Enqueue(flowFieldCells[cell.x, cell.y, cell.z]);
+    //        }
+    //        List<CellIndex> temp = activeCells;
+    //        activeCells = new List<CellIndex>();
+    //        foreach (var cell in temp)
+    //        {
+    //            AddNeighbours(cell.x, cell.y, cell.z, activeCells);
+    //        }
+    //        FlowFieldCell.maxIntegration = currentIntegration;
+    //        counter++;
+    //    }
+    //    Debug.Log("Amount of Loop while integrating: " + counter);
+    //    GenerateVectorField();
+    //}
+
+    //private float FindIntegrationValue(CellIndex ind, out CellIndex prevCell)
+    //{
+    //    int x = ind.x;
+    //    int y = ind.y;
+    //    int z = ind.z;
+    //    List<CellIndex> cells = new List<CellIndex>();
+    //    AddNeighbours(x, y, z, cells, false, false);
+    //    float lowestIntegration = float.PositiveInfinity;
+    //    prevCell = new CellIndex(0, 0, 0);
+
+    //    foreach (var cell in cells)
+    //    {
+    //        float flow = flowFieldCells[cell.x, cell.y, cell.z].integrationValue + (flowFieldCells[cell.x, cell.y, cell.z].center - flowFieldCells[x, y, z].center).magnitude;
+    //        if (flow < lowestIntegration)
+    //        {
+    //            lowestIntegration = flow;
+    //            prevCell = cell;
+    //        }
+    //    }
+    //    return lowestIntegration;
+    //}
+
+    private MovementTest UpdateAgents(FlowFieldCell goal)
     {
-        Debug.Log("Integrating Complete Field!");
-        PrepFieldForIteration();
-        int[] goalIndices = new int[3];
-        GetNearestCell(goal, out goalIndices[0], out goalIndices[1], out goalIndices[2]);
-        flowFieldCells[goalIndices[0], goalIndices[1], goalIndices[2]].integrationValue = 0f;
-        flowFieldCells[goalIndices[0], goalIndices[1], goalIndices[2]].queed = true;
+        float lowestDistance = float.PositiveInfinity;
+        MovementTest returnAgent = null;
+        foreach (var agent in agents)
+        {
+            if ((goal.center - agent.position.position).magnitude < lowestDistance)
+            {
+                returnAgent = agent;
+                lowestDistance = (goal.center - agent.position.position).magnitude;
+            }
+        }
+        return returnAgent;
+    }
 
-        float currentIntegration = 0f;
+    private void GetPath(MovementTest agent, out Queue<FlowFieldCell> path, int fieldIndex)
+    {
+        SetCurrentField(fieldIndex);
+        path = new Queue<FlowFieldCell>();
+        FlowFieldCell current = currentField[agent.cell.x, agent.cell.y, agent.cell.z];
+        if (current == null) return;
+        while (current.integrationValue != 0)
+        {
+            path.Enqueue(current);
+            current = current.cellWithLowestIntegration;
+            if (current == null) break;
+        }
+        Debug.Log("Path Length is: " + path.Count);
 
-        List<CellIndex> activeCells = new List<CellIndex>();
-        AddNeighbours(goalIndices[0], goalIndices[1], goalIndices[2], activeCells);
+    }
+
+    public void DivergePath(Vector3 goal)
+    {
+        MovementTest agent = sceneHandler.agents.First();
+        Queue<FlowFieldCell> path;
         int counter = 0;
-        int loops = GameObject.Find("Main Camera").GetComponent<SceneHandler>().loops;
-        if (loops < 0) loops = int.MaxValue;
 
-        while (activeCells.Count > 0 && counter < loops)
+        foreach (var mov in agent.group)
         {
-            int cellCounter = 0;
-            foreach (var cell in activeCells)
-            {
-                cellCounter++;
-                CellIndex prevCell;
-                flowFieldCells[cell.x, cell.y, cell.z].integrationValue = FindIntegrationValue(cell, out prevCell);
-                flowFieldCells[cell.x, cell.y, cell.z].cellWithLowestIntegration = flowFieldCells[prevCell.x, prevCell.y, prevCell.z];
-
-                integratedCells.Enqueue(flowFieldCells[cell.x, cell.y, cell.z]);
-            }
-            List<CellIndex> temp = activeCells;
-            activeCells = new List<CellIndex>();
-            foreach (var cell in temp)
-            {
-                AddNeighbours(cell.x, cell.y, cell.z, activeCells);
-            }
-            FlowFieldCell.maxIntegration = currentIntegration;
+            mov.fieldIndex = 1;
             counter++;
+            if (counter > agent.group.Count / 2) mov.fieldIndex = 0;
         }
-        Debug.Log("Amount of Loop while integrating: " + counter);
-        GenerateVectorField();
-    }
 
-    private float FindIntegrationValue(CellIndex ind, out CellIndex prevCell)
-    {
-        int x = ind.x;
-        int y = ind.y;
-        int z = ind.z;
-        List<CellIndex> cells = new List<CellIndex>();
-        AddNeighbours(x, y, z, cells, false, false);
-        float lowestIntegration = float.PositiveInfinity;
-        prevCell = new CellIndex(0, 0, 0);
+        GetPath(agent, out path, 0);
 
-        foreach (var cell in cells)
+
+        SetCurrentField(1);
+        counter = 0;
+        FlowFieldCell blockCell = null;
+        FlowFieldCell maxDistance = null;
+        foreach (var cell in path.Reverse())
         {
-            float flow = flowFieldCells[cell.x, cell.y, cell.z].integrationValue + (flowFieldCells[cell.x, cell.y, cell.z].center - flowFieldCells[x, y, z].center).magnitude;
-            if (flow < lowestIntegration)
+            maxDistance = cell;
+            if (counter++ == 30)
+                blockCell = cell;
+            if (counter == 50)
             {
-                lowestIntegration = flow;
-                prevCell = cell;
+                break;
             }
         }
-        return lowestIntegration;
+
+        if (counter > 30 + blockRadius)
+        {
+            ClearLastBlock();
+            lastblock = blockCell;
+            altFlowFieldCells[blockCell.x, blockCell.y, blockCell.z].isBLocked = true;
+            for (int x = blockCell.x - blockRadius; x < blockCell.x + blockRadius; x++)
+            {
+                for (int y = blockCell.y - blockRadius; y < blockCell.y + blockRadius; y++)
+                {
+                    for (int z = blockCell.z - blockRadius; z < blockCell.z + blockRadius; z++)
+                    {
+                        if (isInField(x, y, z))
+                            altFlowFieldCells[x, y, z].isBLocked = true;
+
+                    }
+                }
+            }
+        }
+
+        dummyEmpty.position.position = maxDistance.center;
+        dummyEmpty.cell = maxDistance;
+        IntegrateWithHeuristic(goal, new AStar(), 1, false, dummyEmpty);
     }
 
-    private void AdvanceWavefront(FlowFieldCell cell, IHeuristic heuristic)
+    private void ClearLastBlock()
     {
+        if (lastblock == null) return;
+        for (int x = lastblock.x - blockRadius; x < lastblock.x + blockRadius; x++)
+        {
+            for (int y = lastblock.y - blockRadius; y < lastblock.y + blockRadius; y++)
+            {
+                for (int z = lastblock.z - blockRadius; z < lastblock.z + blockRadius; z++)
+                {
+                    if (isInField(x, y, z))
+                        altFlowFieldCells[x, y, z].isBLocked = false;
+
+                }
+            }
+        }
+    }
+
+    private void AdvanceWavefront(FlowFieldCell cell, IHeuristic heuristic, bool portalMode)
+    {
+
         for (int a = cell.x - 1; a <= cell.x + 1; a++)
         {
             for (int b = cell.z - 1; b <= cell.z + 1; b++)
             {
-                if (isInField(a, cell.y - 1, b) && flowFieldCells[a, cell.y - 1, b].activeWaveFront != currentWaveFront)
+                if (isInField(a, cell.y - 1, b) && currentField[a, cell.y - 1, b].activeWaveFront != currentWaveFront && (cell.portalIndex == currentField[a, cell.y - 1, b].portalIndex || !portalMode) && !currentField[a, cell.y - 1, b].isBLocked)
                 {
-                    activeWavefront.Add(heuristic.CalculateHeuristic(flowFieldCells[a, cell.y - 1, b]) + cell.integrationValue, flowFieldCells[a, cell.y - 1, b]);
-                    flowFieldCells[a, cell.y - 1, b].activeWaveFront = currentWaveFront;
-                    flowFieldCells[a, cell.y - 1, b].cellWithLowestIntegration = cell;
+                    activeWavefront.Add(heuristic.CalculateHeuristic(currentField[a, cell.y - 1, b]) + cell.integrationValue, currentField[a, cell.y - 1, b]);
+                    currentField[a, cell.y - 1, b].previousWaveFront = currentField[a, cell.y - 1, b].activeWaveFront;
+                    currentField[a, cell.y - 1, b].activeWaveFront = currentWaveFront;
+                    currentField[a, cell.y - 1, b].cellWithLowestIntegration = cell;
+                    if (cell.portalIndex > 0)
+                        cell.portalPath = cell.portalIndex;
+
+                    currentField[a, cell.y - 1, b].portalPath = cell.portalPath;
                 }
 
-                if (isInField(a, cell.y, b) && flowFieldCells[a, cell.y, b].activeWaveFront != currentWaveFront)
+                if (isInField(a, cell.y, b) && currentField[a, cell.y, b].activeWaveFront != currentWaveFront && (cell.portalIndex == currentField[a, cell.y, b].portalIndex || !portalMode) && !currentField[a, cell.y, b].isBLocked)
                 {
-                    activeWavefront.Add(heuristic.CalculateHeuristic(flowFieldCells[a, cell.y, b]) + cell.integrationValue, flowFieldCells[a, cell.y, b]);
-                    flowFieldCells[a, cell.y, b].activeWaveFront = currentWaveFront;
-                    flowFieldCells[a, cell.y, b].cellWithLowestIntegration = cell;
+                    activeWavefront.Add(heuristic.CalculateHeuristic(currentField[a, cell.y, b]) + cell.integrationValue, currentField[a, cell.y, b]);
+                    currentField[a, cell.y, b].previousWaveFront = currentField[a, cell.y, b].activeWaveFront;
+                    currentField[a, cell.y, b].activeWaveFront = currentWaveFront;
+                    currentField[a, cell.y, b].cellWithLowestIntegration = cell;
 
+                    if (cell.portalIndex > 0)
+                        cell.portalPath = cell.portalIndex;
+
+                    currentField[a, cell.y, b].portalPath = cell.portalPath;
                 }
 
-                if (isInField(a, cell.y + 1, b) && flowFieldCells[a, cell.y + 1, b].activeWaveFront != currentWaveFront)
+                if (isInField(a, cell.y + 1, b) && currentField[a, cell.y + 1, b].activeWaveFront != currentWaveFront && (cell.portalIndex == currentField[a, cell.y + 1, b].portalIndex || !portalMode) && !currentField[a, cell.y + 1, b].isBLocked)
                 {
-                    activeWavefront.Add(heuristic.CalculateHeuristic(flowFieldCells[a, cell.y + 1, b]) + cell.integrationValue, flowFieldCells[a, cell.y + 1, b]);
-                    flowFieldCells[a, cell.y + 1, b].activeWaveFront = currentWaveFront;
-                    flowFieldCells[a, cell.y + 1, b].cellWithLowestIntegration = cell;
+                    activeWavefront.Add(heuristic.CalculateHeuristic(currentField[a, cell.y + 1, b]) + cell.integrationValue, currentField[a, cell.y + 1, b]);
+                    currentField[a, cell.y + 1, b].previousWaveFront = currentField[a, cell.y + 1, b].activeWaveFront;
+                    currentField[a, cell.y + 1, b].activeWaveFront = currentWaveFront;
+                    currentField[a, cell.y + 1, b].cellWithLowestIntegration = cell;
 
+                    if (cell.portalIndex > 0)
+                        cell.portalPath = cell.portalIndex;
+
+                    currentField[a, cell.y + 1, b].portalPath = cell.portalPath;
                 }
 
 
@@ -437,7 +669,7 @@ public class FlowField
 
 
     /// <summary>
-    /// 
+    /// Used to Move the Target
     /// </summary>
     /// <param name="x"></param>
     /// <param name="y"></param>
@@ -474,14 +706,22 @@ public class FlowField
         }
     }
 
-    public FlowFieldCell GetNearestCell(Vector3 pos)
+    public FlowFieldCell GetNearestCell(Vector3 pos, int fieldIndex)
     {
         int x = 0, y = 0, z = 0;
-        GetNearestCell(pos, out x, out y, out z);
-        return flowFieldCells[x, y, z];
+        SetCurrentField(fieldIndex);
+        GetNearestCell(pos, out x, out y, out z, fieldIndex);
+        return currentField[x, y, z];
     }
-    private void GetNearestCell(Vector3 pos, out int x, out int y, out int z)
+    private void SetCurrentField(int index)
     {
+        if (index == 0) currentField = flowFieldCells;
+        else currentField = altFlowFieldCells;
+    }
+
+    private void GetNearestCell(Vector3 pos, out int x, out int y, out int z, int fieldIndex)
+    {
+        SetCurrentField(fieldIndex);
         x = 0; y = 0; z = 0;
         float cellSize = FlowFieldCell.cellSize;
 
@@ -509,17 +749,64 @@ public class FlowField
         else
             z = Mathf.FloorToInt(posScaled.z);
 
-        if (flowFieldCells[x, y, z] != null) return;
-        while (y > 0 && flowFieldCells[x, y, z] == null) y--;
-        if (flowFieldCells[x, y, z] != null) return;
-        while (y < cellsY && flowFieldCells[x, y, z] == null) y++;
+        if (currentField[x, y, z] != null) return;
+        while (y > 0 && currentField[x, y, z] == null) y--;
+        if (currentField[x, y, z] != null) return;
+        while (y < cellsY - 1 && currentField[x, y, z] == null) y++;
 
     }
-    private bool isInField(int x, int y, int z)
+    private bool isInField(Vector3 pos)
     {
-        return x >= 0 && x < cellsX && y >= 0 && y < cellsY && z >= 0 && z < cellsZ && flowFieldCells[x, y, z] != null;
+        var cell = GetNearestCell(pos, 0);
+        if (cell == null) return false;
+        return isInField(cell.x, cell.y, cell.z);
+    }
+    private bool isInField(int x, int y, int z, bool fieldIsInitalized = true)
+    {
+        return x >= 0 && x < cellsX && y >= 0 && y < cellsY && z >= 0 && z < cellsZ && (currentField[x, y, z] != null || !fieldIsInitalized);
     }
 
+    private void CreatePortals()
+    {
+        GameObject[] portals = GameObject.FindGameObjectsWithTag("Portal");
+        int portalIndex = 0;
+        foreach (GameObject p in portals)
+        {
+            portalIndex++;
+            Vector3 pos = p.transform.position;
+            Vector3 min = p.GetComponent<BoxCollider>().bounds.min;
+            Vector3 max = p.GetComponent<BoxCollider>().bounds.max;
+
+            if (!isInField(min) || !isInField(max)) continue;
+            FlowFieldCell minCell = GetNearestCell(min, 0);
+            FlowFieldCell maxCell = GetNearestCell(max, 0);
+
+            for (int x = minCell.x; x <= maxCell.x; x++)
+            {
+                for (int y = minCell.y; y <= maxCell.y; y++)
+                {
+                    for (int z = minCell.z; z <= maxCell.z; z++)
+                    {
+                        if (!isInField(x, y, z)) continue;
+                        flowFieldCells[x, y, z].portalIndex = portalIndex;
+                    }
+                }
+            }
+
+            for (int i = 1; i < seri.x.Count; i++)
+            {
+                if (isInField(seri.x[i], seri.y[i], seri.z[i]))
+                    seri.portalIndex.Add(flowFieldCells[seri.x[i], seri.y[i], seri.z[i]].portalIndex);
+            }
+        }
+
+
+    }
+    /// <summary>
+    /// USed to Move the Target
+    /// </summary>
+    /// <param name="ind"></param>
+    /// <returns></returns>
     public FlowFieldCell GetRandomNeighbour(CellIndex ind)
     {
         bool[,,] neighbours = new bool[3, 3, 3];
@@ -535,62 +822,31 @@ public class FlowField
 
     }
 
-    public void GenerateVectorField()
+    public void GenerateVectorField(Queue<FlowFieldCell> integratedCells, bool draw = false)
     {
         Debug.Log("Generating Vector Field for " + integratedCells.Count + " cells!");
         foreach (var cell in integratedCells)
         {
-            cell.flowValue = flowFieldCells[cell.cellWithLowestIntegration.x, cell.cellWithLowestIntegration.y, cell.cellWithLowestIntegration.z].center - cell.center;
-            if (sceneHandler.DrawGraph) cell.DrawCell(sceneHandler.DrawVectorOnly);
+            cell.flowValue = currentField[cell.cellWithLowestIntegration.x, cell.cellWithLowestIntegration.y, cell.cellWithLowestIntegration.z].center - cell.center;
+            if (draw) cell.DrawCell(sceneHandler.DrawVectorOnly);
         }
         return;
-        PrepFieldForIteration(false);
-        int counter = 0;
-        List<CellIndex> neighbours = new List<CellIndex>();
-        for (int x = 0; x < cellsX; x++)
-        {
-            for (int y = 0; y < cellsY; y++)
-            {
-                for (int z = 0; z < cellsZ; z++)
-                {
-                    if (flowFieldCells[x, y, z] == null || flowFieldCells[x, y, z].integrationValue == float.PositiveInfinity) continue;
-                    neighbours.Clear();
-                    flowFieldCells[x, y, z].queed = false;
-
-                    AddNeighbours(x, y, z, neighbours, false, false);
-                    if (neighbours.Count == 0) continue;
-                    int highest = FindHighestIntegration(neighbours);
-                    CellIndex highestNeighbour = neighbours[highest];
-                    flowFieldCells[x, y, z].flowValue = flowFieldCells[highestNeighbour.x, highestNeighbour.y, highestNeighbour.z].center - flowFieldCells[x, y, z].center;
-                    counter++;
-                    if (flowFieldCells[x, y, z].flowValue == Vector3.zero)
-                        Debug.Log("");
-                }
-            }
-        }
-        Debug.Log("Generated Vector for: " + counter);
 
     }
-    private int FindHighestIntegration(List<CellIndex> list)
-    {
-        int index = 0;
-        float lowest = float.MaxValue;
-        for (int i = 0; i < list.Count; i++)
-        {
-            if (flowFieldCells[list[i].x, list[i].y, list[i].z].integrationValue < lowest)
-            {
-                lowest = flowFieldCells[list[i].x, list[i].y, list[i].z].integrationValue;
-                index = i;
-            }
-        }
-        return index;
-    }
-
-    public Vector3 GetVector(int x, int y, int z)
-    {
-        if (flowFieldCells[x, y, z] == null) return Vector3.zero;
-        return flowFieldCells[x, y, z].flowValue;
-    }
+    //private int FindHighestIntegration(List<CellIndex> list)
+    //{
+    //    int index = 0;
+    //    float lowest = float.MaxValue;
+    //    for (int i = 0; i < list.Count; i++)
+    //    {
+    //        if (flowFieldCells[list[i].x, list[i].y, list[i].z].integrationValue < lowest)
+    //        {
+    //            lowest = flowFieldCells[list[i].x, list[i].y, list[i].z].integrationValue;
+    //            index = i;
+    //        }
+    //    }
+    //    return index;
+    //}
 
 
 }
@@ -604,5 +860,6 @@ public class SeriField
     public List<int> x = new List<int>();
     public List<int> y = new List<int>();
     public List<int> z = new List<int>();
+    public List<int> portalIndex = new List<int>();
 }
 

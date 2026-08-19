@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.IO.LowLevel.Unsafe;
 using UnityEditor.PackageManager;
 using UnityEngine;
@@ -20,6 +21,7 @@ public class SceneHandler : MonoBehaviour
     private float[] deltaTimes = new float[10];
     public List<MovementTest> agents;
 
+
     // Start is called before the first frame update
     void Start()
     {
@@ -37,12 +39,14 @@ public class SceneHandler : MonoBehaviour
         }
 
         Vector3 targetPos = GameObject.FindGameObjectWithTag("Target").transform.position;
-        FlowField.flowField.IntegrateWithHeuristic(targetPos, new AStar());
-        foreach (MovementTest go in agents)
-        {
+        FlowField.flowField.IntegrateWithHeuristic(targetPos, new AStar(), 0);
+        //foreach (MovementTest go in agents)
+        //{
 
-            go.Init();
-        }
+        //    go.Init();
+        //}
+
+        MovementTest.UpdateGroups();
         //if (DrawGraph) FlowField.flowField.DrawGraph(DrawVectorOnly);
 
     }
@@ -67,7 +71,6 @@ public class SceneHandler : MonoBehaviour
     {
         if (LogTickTimes)
         {
-
             deltaTimes[frameCounter] = Time.deltaTime;
             frameCounter++;
             if (frameCounter > 9)

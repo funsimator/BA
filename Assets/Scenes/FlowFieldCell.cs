@@ -30,20 +30,28 @@ public class FlowFieldCell
 
     public float integrationValue { get; set; } = float.PositiveInfinity;
 
+
     public FlowFieldCell cellWithLowestIntegration;
 
     public bool queed = false;
 
-    public int activeWaveFront = 0;
+    public int activeWaveFront = int.MinValue;
+
+    public int previousWaveFront = int.MinValue;
 
     private float isVisibleFor = 3f;
 
-    public static float maxIntegration = 0; 
+    public static float maxIntegration = 0;
 
+    public int portalIndex = 0;
+
+    public int portalPath = 0;
     /// <summary>
     /// This is radius of the cell
     /// </summary>
     public static float cellSize { get; set; } = 1f;
+
+    public bool isBLocked = false;
 
     public bool hasAgent = false;
     /// <summary>
@@ -53,10 +61,11 @@ public class FlowFieldCell
     /// <param name="x">Index in Flow Field</param>
     /// <param name="y">Index in Flow Field</param>
     /// <param name="z">Index in Flow Field</param>
-    public FlowFieldCell(Vector3 center, int x, int y, int z)
+    public FlowFieldCell(Vector3 center, int x, int y, int z, int portalIndex = 0)
     {
         this.center = center;
         this.x = x; this.y = y; this.z = z;
+        this.portalIndex = portalIndex;
     }
 
 
@@ -87,8 +96,8 @@ public class FlowFieldCell
         if (drawVectorOnly) return;
         float halfCellSize = cellSize / 2 - 0.01f;
         Color color = new Color(0, 1, 1 - Mathf.Lerp(0, 1, integrationValue / maxIntegration));
-        if (hasAgent) color = Color.red;
-
+        if (portalIndex > 0) { color = Color.magenta; }
+        if(isBLocked) { color = Color.red; } 
 
         Debug.DrawLine(new Vector3(center.x + halfCellSize, center.y + halfCellSize, center.z + halfCellSize), new Vector3(center.x - halfCellSize, center.y + halfCellSize, center.z + halfCellSize), color, isVisibleFor);
         Debug.DrawLine(new Vector3(center.x + halfCellSize, center.y - halfCellSize, center.z + halfCellSize), new Vector3(center.x - halfCellSize, center.y - halfCellSize, center.z + halfCellSize), color, isVisibleFor);
