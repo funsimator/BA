@@ -130,8 +130,8 @@ public class FlowField
         if (to != null)
             FilldDeviationEndpoint(to.cell, 1, integratedCells);
 
-        GenerateVectorField(integratedCells, sceneHandler.DrawGraph && fieldIndex == 1);
-        if (integratedCells.Count != maxCellsPerTick && fieldIndex == 0) DivergePath(goal);
+        GenerateVectorField(integratedCells, sceneHandler.DrawGraph && fieldIndex == 0);
+        //if (integratedCells.Count != maxCellsPerTick && fieldIndex == 0) DivergePath(goal);
         return (integratedCells.Count == maxCellsPerTick);
     }
 
