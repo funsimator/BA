@@ -22,13 +22,14 @@ public class NavMeshHandler
     {
         Debug.Log(Cube);
         navMesh = NavMesh.CalculateTriangulation();
+        Debug.Log("Nav Mesh has " + navMesh.indices.Length / 3 + " Triangles!");
         //GenerateGraph();
         Debug.Log("isDebugBuild: " + Debug.isDebugBuild);
 
 
     }
 
-    public  void VisualizeNavMeshTriangles()
+    public void VisualizeNavMeshTriangles()
     {
         int b = 1;
         int c = 2;

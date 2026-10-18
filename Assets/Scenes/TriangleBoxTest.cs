@@ -5,6 +5,7 @@ using System.Security.Cryptography.X509Certificates;
 using UnityEngine;
 using static UnityEngine.UI.Image;
 
+// Code adaptiert von https://stackoverflow.com/questions/17458562/efficient-aabb-triangle-intersection-in-c-sharp 
 class IntersectionTest
 {
 

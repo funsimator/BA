@@ -8,9 +8,11 @@ using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using System.Transactions;
+using Unity.Profiling;
 using UnityEditor.Experimental.GraphView;
 using UnityEditor.SearchService;
 using UnityEngine;
+using static UnityEditor.Experimental.AssetDatabaseExperimental.AssetDatabaseCounters;
 
 public class FlowField
 {
@@ -241,7 +243,7 @@ public class FlowField
         fieldOrigin = new Vector3(seri.originX, seri.originY, seri.originZ);
         GameObject.FindGameObjectWithTag("Visu").transform.position = fieldOrigin;
         fieldMax = fieldOrigin + new Vector3(seri.x[0] * FlowFieldCell.cellSize, seri.y[0] * FlowFieldCell.cellSize, seri.z[0] * FlowFieldCell.cellSize);
-
+        Debug.Log("The Scene has " + seri.x.Count + " cells!");
         cellsX = seri.x[0];
         cellsY = seri.y[0];
         cellsZ = seri.z[0];
@@ -322,7 +324,6 @@ public class FlowField
         Vector3 min = fieldOrigin;
         Vector3 max = fieldMax;
 
-
         for (int a = 0; a < navMesh.navMesh.indices.Length; a += 3)
         {
             colliderEmpty = GameObject.Find("ColliderEmpty");
@@ -378,7 +379,7 @@ public class FlowField
             int[] sectorOriginCell = { 0, 0, 0 };
 
 
-            //Find the Indizes in the Flow Field for the Origin of the Triangle         
+            //Find the Indizes in the Flow Field for the Origin of the Cell         
 
             while (fieldOrigin.x + sectorOriginCell[0] * FlowFieldCell.cellSize < minX)
                 sectorOriginCell[0]++;
@@ -441,7 +442,6 @@ public class FlowField
             b += 3;
             c += 3;
         }
-
         CreatePortals();
 
     }
