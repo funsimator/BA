@@ -26,6 +26,10 @@ public class FlowField
     int cellsY = 0;
     int cellsZ = 0;
 
+    long iterationTimer = 0;
+    int iterationCounter = 0;
+    int iterationCellCounter = 0;
+
     private FlowFieldCell lastblock = null;
 
     private int blockRadius = 15;
@@ -46,7 +50,7 @@ public class FlowField
 
     private SeriField seri = new SeriField();
 
-    private int maxCellsPerTick = 3000;
+    private int maxCellsPerTick = 700;
 
     private bool loadFromFile = false;
 
@@ -73,6 +77,15 @@ public class FlowField
 
     public bool IntegrateWithHeuristic(Vector3 goal, IHeuristic heuristic, int fieldIndex, bool resume = false, MovementTest to = null)
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        if (!resume)
+        {
+            iterationCounter = 0;
+            iterationTimer = 0;
+            iterationCellCounter = 0;
+        }
+
+
         Debug.Log("IntegrateWithHeuristic");
         this.heuristic = heuristic;
         FlowFieldCell start = GetNearestCell(goal, fieldIndex);
@@ -134,6 +147,20 @@ public class FlowField
 
         GenerateVectorField(integratedCells, sceneHandler.DrawGraph && fieldIndex == 0);
         //if (integratedCells.Count != maxCellsPerTick && fieldIndex == 0) DivergePath(goal);
+        watch.Stop();
+        var elapsedMs = watch.ElapsedMilliseconds;
+        Debug.Log(elapsedMs + " Milisceonds");
+        iterationTimer += elapsedMs;
+        iterationCounter++;
+
+        if (integratedCells.Count != maxCellsPerTick)
+        {
+            Debug.Log("It took " + iterationTimer + " miliseconds to iterate the path.");
+            Debug.Log("It took " + iterationCounter + " ticks to iterate the path this Tick.");
+            Debug.Log("It took " + iterationCellCounter + " cells to iterate the path this Tick.");
+
+            Debug.Break();
+        }
         return (integratedCells.Count == maxCellsPerTick);
     }
 
@@ -164,7 +191,7 @@ public class FlowField
 
     public Vector3 FillGraph(FlowFieldCell cell, int fieldIndex)
     {
-        Debug.Log("Fill Graph!");
+        //Debug.Log("Fill Graph for: " + cell.x + "," + cell.y + "," + cell.z);
         if (fieldIndex == 0) currentField = flowFieldCells;
         else currentField = altFlowFieldCells;
         float lowestIntegration = float.PositiveInfinity;
@@ -258,6 +285,10 @@ public class FlowField
 
     public void GenerateGraph(bool loadFromFile, TextAsset file)
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+
+        Debug.Log("Generate Graph for Cellsize: " + FlowFieldCell.cellSize);
         dummyEmpty = GameObject.FindGameObjectWithTag("Dummy").GetComponent<MovementTest>();
         this.loadFromFile = loadFromFile;
         if (loadFromFile)
@@ -297,6 +328,9 @@ public class FlowField
             formatter.Serialize(fs, seri);
             fs.Close();
         }
+        watch.Stop();
+        var elapsedMs = watch.ElapsedMilliseconds;
+        Debug.Log("It took " + elapsedMs + " milisesconds to generate and write the graph.");
     }
 
     //public void DrawGraph(bool drawVectorOnly)
@@ -442,6 +476,7 @@ public class FlowField
             b += 3;
             c += 3;
         }
+        Debug.Log("The total amount of Cells is: " + (seri.x.Count - 1));
         CreatePortals();
 
     }
@@ -825,6 +860,7 @@ public class FlowField
     public void GenerateVectorField(Queue<FlowFieldCell> integratedCells, bool draw = false)
     {
         Debug.Log("Generating Vector Field for " + integratedCells.Count + " cells!");
+        iterationCellCounter += integratedCells.Count;
         foreach (var cell in integratedCells)
         {
             cell.flowValue = currentField[cell.cellWithLowestIntegration.x, cell.cellWithLowestIntegration.y, cell.cellWithLowestIntegration.z].center - cell.center;

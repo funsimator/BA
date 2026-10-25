@@ -52,8 +52,9 @@ public class MovementTest : MonoBehaviour
             return;
         }
 
-        cell = FlowField.flowField.GetNearestCell(position.position, fieldIndex);
 
+        cell = FlowField.flowField.GetNearestCell(position.position, fieldIndex);
+        if (cell == null) return;
         movementDir = cell.flowValue;
 
         if (movementDir == Vector3.zero)

@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,6 +14,7 @@ public class SceneHandler : MonoBehaviour
     public bool DrawGraph;
     public bool DrawVectorOnly;
     public bool DrawNavMesh;
+    public bool StopMovement;
     public bool LoadFieldFromFile;
     public bool LogTickTimes;
     public TextAsset FlowFieldJSON;
@@ -20,7 +22,7 @@ public class SceneHandler : MonoBehaviour
     private int frameCounter = 0;
     private float[] deltaTimes = new float[10];
     public List<MovementTest> agents;
-
+    int generatedGraph = 0;
 
     // Start is called before the first frame update
     void Start()
@@ -28,6 +30,9 @@ public class SceneHandler : MonoBehaviour
         //FlowField.flowField.IntegrateCompleteField(GameObject.FindGameObjectWithTag("Target").transform.position);
         GameObject[] temp = GameObject.FindGameObjectsWithTag("Agent");
         agents = new List<MovementTest>(temp.Length);
+        Debug.Log("There are " + temp.Length + " agents in the scene!");
+        if (temp.Length == 0)
+            return;
         foreach (GameObject go in temp)
         {
             agents.Add(go.GetComponent<MovementTest>());
@@ -69,8 +74,10 @@ public class SceneHandler : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+
         if (LogTickTimes)
         {
+            
             deltaTimes[frameCounter] = Time.deltaTime;
             frameCounter++;
             if (frameCounter > 9)
@@ -78,7 +85,9 @@ public class SceneHandler : MonoBehaviour
                 float total = 0f;
                 foreach (float time in deltaTimes)
                     total += time;
+
                 Debug.Log("Average Tick time: " + total / 10);
+                Debug.Log("Tick times: " + deltaTimes[0] + " , " + deltaTimes[1] + " , " + deltaTimes[2] + " , " + deltaTimes[3] + " , " + deltaTimes[4] + " , " + deltaTimes[5] + " , " + deltaTimes[6] + " , " + deltaTimes[7] + " , " + deltaTimes[8] + " , " + deltaTimes[9] + " , ");
 
                 frameCounter = 0;
             }

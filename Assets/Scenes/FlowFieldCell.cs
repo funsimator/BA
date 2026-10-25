@@ -49,7 +49,7 @@ public class FlowFieldCell
     /// <summary>
     /// This is radius of the cell
     /// </summary>
-    public static float cellSize { get; set; } = 1f;
+    public static float cellSize { get; set; } = 1f; // was 1 
 
     public bool isBLocked = false;
 
@@ -97,7 +97,7 @@ public class FlowFieldCell
         float halfCellSize = cellSize / 2 - 0.01f;
         Color color = new Color(0, 1, 1 - Mathf.Lerp(0, 1, integrationValue / maxIntegration));
         if (portalIndex > 0) { color = Color.magenta; }
-        if(isBLocked) { color = Color.red; } 
+        if (isBLocked) { color = Color.red; }
 
         Debug.DrawLine(new Vector3(center.x + halfCellSize, center.y + halfCellSize, center.z + halfCellSize), new Vector3(center.x - halfCellSize, center.y + halfCellSize, center.z + halfCellSize), color, isVisibleFor);
         Debug.DrawLine(new Vector3(center.x + halfCellSize, center.y - halfCellSize, center.z + halfCellSize), new Vector3(center.x - halfCellSize, center.y - halfCellSize, center.z + halfCellSize), color, isVisibleFor);
